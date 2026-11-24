@@ -1,0 +1,15 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MySQL ConfigMap — Auto-created by Terraform workflow after infra provisioning
+# Do NOT edit manually — values are populated from terraform output
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-config
+  namespace: banking-app
+data:
+  DB_HOST: "bankingapp-mysql.mysql.database.azure.com"
+  DB_USER: "bankadmin"
+  DB_PASSWORD: "Veera@2024#Cloud"
+  DB_PORT: "3306"
+  DB_NAME: "veera_nareshit_bank_db"

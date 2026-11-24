@@ -1,0 +1,69 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Backend Service — Node.js API connected to MySQL
+# Internal only (ClusterIP) — accessed by frontend nginx proxy_pass
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-service
+  namespace: banking-app
+  labels:
+    app: backend-service
+    tier: backend
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: backend-service
+  template:
+    metadata:
+      labels:
+        app: backend-service
+        tier: backend
+    spec:
+      containers:
+        - name: backend-service
+          image: bankingappveeraacr.azurecr.io/backend-service:aa4ca8631c0d925977ad1d7ff14dc9bd60076625
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: mysql-config
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: banking-app
+  labels:
+    app: backend-service
+    tier: backend
+spec:
+  selector:
+    app: backend-service
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP

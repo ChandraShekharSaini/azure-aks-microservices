@@ -1,0 +1,71 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Banking UI — Main homepage (static nginx, port 3000)
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: banking-ui
+  namespace: banking-app
+  labels:
+    app: banking-ui
+    tier: frontend
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: banking-ui
+  template:
+    metadata:
+      labels:
+        app: banking-ui
+        tier: frontend
+    spec:
+      containers:
+        - name: banking-ui
+          image: bankingappveeraacr.azurecr.io/banking-ui:aa4ca8631c0d925977ad1d7ff14dc9bd60076625
+          env:
+            - name: BACKEND_URL
+              value: "http://backend-service.banking-app.svc.cluster.local:8080"
+            # Restrict envsubst to BACKEND_URL so nginx's own $host/$uri/... survive
+            - name: NGINX_ENVSUBST_FILTER
+              value: "BACKEND_URL"
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: banking-ui
+  namespace: banking-app
+  labels:
+    app: banking-ui
+    tier: frontend
+spec:
+  selector:
+    app: banking-ui
+  ports:
+    - port: 3000
+      targetPort: 3000
+  type: ClusterIP

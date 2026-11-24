@@ -1,0 +1,71 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Loans UI — Static frontend (nginx, port 8083)
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loans-ui
+  namespace: banking-app
+  labels:
+    app: loans-ui
+    tier: frontend
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: loans-ui
+  template:
+    metadata:
+      labels:
+        app: loans-ui
+        tier: frontend
+    spec:
+      containers:
+        - name: loans-ui
+          image: bankingappveeraacr.azurecr.io/loans-ui:aa4ca8631c0d925977ad1d7ff14dc9bd60076625
+          env:
+            - name: BACKEND_URL
+              value: "http://backend-service.banking-app.svc.cluster.local:8080"
+            # Restrict envsubst to BACKEND_URL so nginx's own $host/$uri/... survive
+            - name: NGINX_ENVSUBST_FILTER
+              value: "BACKEND_URL"
+          ports:
+            - containerPort: 8083
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+            initialDelaySeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loans-ui
+  namespace: banking-app
+  labels:
+    app: loans-ui
+    tier: frontend
+spec:
+  selector:
+    app: loans-ui
+  ports:
+    - port: 8083
+      targetPort: 8083
+  type: ClusterIP
