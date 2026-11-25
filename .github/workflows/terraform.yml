@@ -24,7 +24,6 @@ env:
   ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
   PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-
   TF_IN_AUTOMATION: true
 
 jobs:
@@ -41,13 +40,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # Login to Azure
+      # Azure Login
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # Install Terraform
+      # Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -58,11 +57,11 @@ jobs:
       - name: Terraform Format
         run: terraform fmt -check -recursive
 
-      # Initialize local Terraform backend
+      # Terraform Init
       - name: Terraform Init
         run: terraform init -reconfigure
 
-      # Validate configuration
+      # Terraform Validate
       - name: Terraform Validate
         run: terraform validate
 
@@ -80,3 +79,69 @@ jobs:
       - name: Terraform Destroy
         if: inputs.action == 'destroy'
         run: terraform destroy -auto-approve
+
+      # Get Terraform Outputs
+      - name: Get Terraform Outputs
+        if: inputs.action == 'apply'
+        id: tf_output
+        run: |
+          MYSQL_HOST=$(terraform output -raw mysql_fqdn)
+          MYSQL_USER=$(terraform output -raw mysql_admin_username)
+          MYSQL_PASSWORD=$(terraform output -raw mysql_admin_password)
+
+          echo "::add-mask::$MYSQL_PASSWORD"
+
+          echo "MYSQL_HOST=$MYSQL_HOST" >> "$GITHUB_OUTPUT"
+          echo "MYSQL_USER=$MYSQL_USER" >> "$GITHUB_OUTPUT"
+          echo "MYSQL_PASSWORD=$MYSQL_PASSWORD" >> "$GITHUB_OUTPUT"
+
+      # Update ConfigMap with MySQL Host and User
+      - name: Update ConfigMap YAML
+        if: inputs.action == 'apply'
+        working-directory: ${{ github.workspace }}
+        env:
+          MYSQL_HOST: ${{ steps.tf_output.outputs.MYSQL_HOST }}
+          MYSQL_USER: ${{ steps.tf_output.outputs.MYSQL_USER }}
+        run: |
+          sed -i "s|REPLACE_MYSQL_HOST|${MYSQL_HOST}|g" k8s/02-configmap.yaml
+          sed -i "s|REPLACE_DB_USER|${MYSQL_USER}|g" k8s/02-configmap.yaml
+
+      # Create Kubernetes Secret YAML locally
+      - name: Create MySQL Secret YAML
+        if: inputs.action == 'apply'
+        working-directory: ${{ github.workspace }}
+        env:
+          MYSQL_PASSWORD: ${{ steps.tf_output.outputs.MYSQL_PASSWORD }}
+        run: |
+          mkdir -p k8s
+
+          cat > k8s/03-secret.yaml <<EOF
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: mysql-secret
+            namespace: default
+          type: Opaque
+          stringData:
+            MYSQL_PASSWORD: "${MYSQL_PASSWORD}"
+          EOF
+
+          echo "Kubernetes Secret YAML created."
+
+      # Commit ConfigMap only
+      - name: Commit Updated ConfigMap
+        if: inputs.action == 'apply'
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git remote set-url origin \
+            https://x-access-token:${PAT_TOKEN}@github.com/${{ github.repository }}.git
+
+          git add k8s/02-configmap.yaml
+
+          git commit -m "Update ConfigMap with Terraform MySQL outputs" \
+            || echo "No changes to commit"
+
+          git push
