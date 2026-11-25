@@ -1,128 +1,82 @@
+
 name: Terraform - Provision Azure Infra
 
 on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'Terraform action'
+        description: "Terraform action"
         required: true
-        default: 'apply'
+        default: "apply"
         type: choice
         options:
           - plan
           - apply
           - destroy
 
+permissions:
+  contents: write
+
 env:
   ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
   ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
   ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
   PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-  TF_STATE_RG: terraform-state-rg
-  TF_STATE_SA: vaboraterraformstate
-  TF_STATE_CONTAINER: tfstate
+
+  TF_IN_AUTOMATION: true
 
 jobs:
   terraform:
-    name: Terraform ${{ github.event.inputs.action }}
+    name: Terraform ${{ inputs.action }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+
     defaults:
       run:
-        working-directory: terraform
+        working-directory: AKS-Terraform
 
     steps:
-      - name: Checkout repo
+      # Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # Login to Azure
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # Create Storage Account and resourse group for Terraform state if it doesn't exist
-      # - name: Create Terraform state storage (if not exists)
-      #   run: |
-      #     # Check if resource group exists, create if not
-      #     az group show --name ${{ env.TF_STATE_RG }} 2>/dev/null || \
-      #       az group create --name ${{ env.TF_STATE_RG }} --location eastus
-
-      #     # Check if storage account exists, create if not
-      #     SA_EXISTS=$(az storage account show --name ${{ env.TF_STATE_SA }} --resource-group ${{ env.TF_STATE_RG }} --query "name" -o tsv 2>/dev/null || echo "")
-      #     if [ -z "$SA_EXISTS" ]; then
-      #       echo "Creating storage account..."
-      #       az storage account create \
-      #         --name ${{ env.TF_STATE_SA }} \
-      #         --resource-group ${{ env.TF_STATE_RG }} \
-      #         --location eastus \
-      #         --sku Standard_LRS
-      #     else
-      #       echo "Storage account already exists, skipping..."
-      #     fi
-
-      #     # Check if blob container exists, create if not
-      #     CONTAINER_EXISTS=$(az storage container show --name ${{ env.TF_STATE_CONTAINER }} --account-name ${{ env.TF_STATE_SA }} --query "name" -o tsv 2>/dev/null || echo "")
-      #     if [ -z "$CONTAINER_EXISTS" ]; then
-      #       echo "Creating blob container..."
-      #       az storage container create \
-      #         --name ${{ env.TF_STATE_CONTAINER }} \
-      #         --account-name ${{ env.TF_STATE_SA }}
-      #     else
-      #       echo "Blob container already exists, skipping..."
-      #     fi
-
+      # Install Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.7.5"
+          terraform_version: "1.12.2"
           terraform_wrapper: false
 
-      - name: Terraform Init
-        run: terraform init
+      # Terraform Format
+      - name: Terraform Format
+        run: terraform fmt -check -recursive
 
+      # Initialize local Terraform backend
+      - name: Terraform Init
+        run: terraform init -reconfigure
+
+      # Validate configuration
       - name: Terraform Validate
         run: terraform validate
 
+      # Terraform Plan
       - name: Terraform Plan
-        if: github.event.inputs.action != 'destroy'
+        if: inputs.action == 'plan' || inputs.action == 'apply'
         run: terraform plan -out=tfplan
 
+      # Terraform Apply
       - name: Terraform Apply
-        if: github.event.inputs.action == 'apply'
+        if: inputs.action == 'apply'
         run: terraform apply -auto-approve tfplan
 
+      # Terraform Destroy
       - name: Terraform Destroy
-        if: github.event.inputs.action == 'destroy'
+        if: inputs.action == 'destroy'
         run: terraform destroy -auto-approve
-
-      # ─────────────────────────────────────────────────────────────────────
-      # After Apply — Update ConfigMap yaml with real MySQL values
-      # ─────────────────────────────────────────────────────────────────────
-      - name: Get Terraform Outputs
-        if: github.event.inputs.action == 'apply'
-        id: tf_output
-        run: |
-          echo "MYSQL_HOST=$(terraform output -raw mysql_fqdn)" >> $GITHUB_OUTPUT
-          echo "MYSQL_USER=$(terraform output -raw mysql_admin_username)" >> $GITHUB_OUTPUT
-          echo "MYSQL_PASSWORD=$(terraform output -raw mysql_admin_password)" >> $GITHUB_OUTPUT
-
-      - name: Update ConfigMap yaml with MySQL values
-        if: github.event.inputs.action == 'apply'
-        run: |
-          cd $GITHUB_WORKSPACE
-          sed -i "s|REPLACE_MYSQL_HOST|${{ steps.tf_output.outputs.MYSQL_HOST }}|g" k8s/02-configmap.yaml
-          sed -i "s|REPLACE_DB_USER|${{ steps.tf_output.outputs.MYSQL_USER }}|g" k8s/02-configmap.yaml
-          sed -i "s|REPLACE_DB_PASSWORD|${{ steps.tf_output.outputs.MYSQL_PASSWORD }}|g" k8s/02-configmap.yaml
-
-      - name: Commit updated ConfigMap
-        if: github.event.inputs.action == 'apply'
-        run: |
-          cd $GITHUB_WORKSPACE
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git remote set-url origin https://x-access-token:${{ env.PAT_TOKEN }}@github.com/${{ github.repository }}.git
-          git add k8s/02-configmap.yaml
-          git commit -m "Update configmap with MySQL connection details from Terraform" || echo "No changes to commit"
-          git push
