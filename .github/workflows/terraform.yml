@@ -43,35 +43,35 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       # Create Storage Account and resourse group for Terraform state if it doesn't exist
-      - name: Create Terraform state storage (if not exists)
-        run: |
-          # Check if resource group exists, create if not
-          az group show --name ${{ env.TF_STATE_RG }} 2>/dev/null || \
-            az group create --name ${{ env.TF_STATE_RG }} --location eastus
+      # - name: Create Terraform state storage (if not exists)
+      #   run: |
+      #     # Check if resource group exists, create if not
+      #     az group show --name ${{ env.TF_STATE_RG }} 2>/dev/null || \
+      #       az group create --name ${{ env.TF_STATE_RG }} --location eastus
 
-          # Check if storage account exists, create if not
-          SA_EXISTS=$(az storage account show --name ${{ env.TF_STATE_SA }} --resource-group ${{ env.TF_STATE_RG }} --query "name" -o tsv 2>/dev/null || echo "")
-          if [ -z "$SA_EXISTS" ]; then
-            echo "Creating storage account..."
-            az storage account create \
-              --name ${{ env.TF_STATE_SA }} \
-              --resource-group ${{ env.TF_STATE_RG }} \
-              --location eastus \
-              --sku Standard_LRS
-          else
-            echo "Storage account already exists, skipping..."
-          fi
+      #     # Check if storage account exists, create if not
+      #     SA_EXISTS=$(az storage account show --name ${{ env.TF_STATE_SA }} --resource-group ${{ env.TF_STATE_RG }} --query "name" -o tsv 2>/dev/null || echo "")
+      #     if [ -z "$SA_EXISTS" ]; then
+      #       echo "Creating storage account..."
+      #       az storage account create \
+      #         --name ${{ env.TF_STATE_SA }} \
+      #         --resource-group ${{ env.TF_STATE_RG }} \
+      #         --location eastus \
+      #         --sku Standard_LRS
+      #     else
+      #       echo "Storage account already exists, skipping..."
+      #     fi
 
-          # Check if blob container exists, create if not
-          CONTAINER_EXISTS=$(az storage container show --name ${{ env.TF_STATE_CONTAINER }} --account-name ${{ env.TF_STATE_SA }} --query "name" -o tsv 2>/dev/null || echo "")
-          if [ -z "$CONTAINER_EXISTS" ]; then
-            echo "Creating blob container..."
-            az storage container create \
-              --name ${{ env.TF_STATE_CONTAINER }} \
-              --account-name ${{ env.TF_STATE_SA }}
-          else
-            echo "Blob container already exists, skipping..."
-          fi
+      #     # Check if blob container exists, create if not
+      #     CONTAINER_EXISTS=$(az storage container show --name ${{ env.TF_STATE_CONTAINER }} --account-name ${{ env.TF_STATE_SA }} --query "name" -o tsv 2>/dev/null || echo "")
+      #     if [ -z "$CONTAINER_EXISTS" ]; then
+      #       echo "Creating blob container..."
+      #       az storage container create \
+      #         --name ${{ env.TF_STATE_CONTAINER }} \
+      #         --account-name ${{ env.TF_STATE_SA }}
+      #     else
+      #       echo "Blob container already exists, skipping..."
+      #     fi
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
